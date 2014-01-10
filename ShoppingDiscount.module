@@ -1,0 +1,79 @@
+<?php
+
+
+class ShoppingDiscount extends WireData implements Module, ConfigurableModule {
+
+    public $title;
+
+    public static function getModuleInfo()
+    {
+        return array(
+            'title' => 'Shopping Discount',
+            'version' => 001,
+            'summary' => 'Calculate discount depending on total sum.',
+            'singular' => false,
+            'autoload' => false
+        );
+    }
+
+    public function init()
+    {
+        $this->title = $this->_("Discount");
+    }
+
+    /**
+     * calculate amount of discount and return it
+     * @param  float $sum total sum of card items, plus shipping cost if any
+     * @return float amount of discount
+     */
+    public function calculateDiscountCost($sum)
+    {
+
+        $discount = 0;
+        if($sum > $this->discountThreshold) {
+            $discount = ($sum / 100) * $this->discountPercent;
+        }
+        // set discount to cart instance
+        $this->modules->ShoppingCart->discountCost = $discount;
+
+        return $discount;
+
+    }
+
+    /**
+     * Round total price
+     *
+     * Useful for after discount calculation.
+     * This is most and only needed for Swiss currency! Cause there's NO "00.01" amount in Switzerland
+     *
+     * @param  float $sum total sum of cart with discount substracted
+     * @return float      return value after rounding
+     */
+    public function ___roundPrice($sum)
+    {
+        return $sum;
+    }
+
+    static public function getModuleConfigInputfields(Array $data)
+    {
+        // this is a container for fields, basically like a fieldset
+        $fields = new InputfieldWrapper();
+
+        // since this is a static function, we can't use $this->modules, so get them from the global wire() function
+        $modules = wire('modules');
+
+        $field = $modules->get("InputfieldInteger");
+        $field->attr('name', 'discountPercent');
+        $field->attr('value', isset($data['discountPercent']) ? $data['discountPercent'] : '');
+        $field->label = __("Discount in percent");
+        $fields->add($field);
+
+        $field = $modules->get("InputfieldFloat");
+        $field->attr('name', 'discountThreshold');
+        $field->attr('value', isset($data['discountThreshold']) ? $data['discountThreshold'] : '');
+        $field->label = __("Threshold price (float)");
+        $fields->add($field);
+
+        return $fields;
+    }
+}

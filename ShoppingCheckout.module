@@ -519,6 +519,12 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 	 */
 	public function createOrder()
 	{
+
+		// temporary fix for float fields saving to page not working
+		// when locale set to other than standard
+		$oldLocale = setlocale(LC_ALL, '0');
+		setlocale(LC_ALL, "C");
+
 		if ($this->session->orderArray['valid'] == FALSE) throw new WireException("Non-valid order got through.");
 
 		$fields = $this->session->orderArray['fields'];
@@ -557,7 +563,8 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 		$order->sc_greetings = $fields['greetings']['value'];
 		$order->sc_custom1 = $fields['custom1']['value'];
 		$order->sc_custom2 = $fields['custom2']['value'];
-		$order->sc_price = $this->modules->ShoppingCart->getTotalSumFromItems($items, $shippingOption);
+		$total_sum = $this->modules->ShoppingCart->getTotalSumFromItems($items, $shippingOption);
+		$order->sc_price = $total_sum;
 		$order->sc_customer = $this->user;
 		$order->sc_paymentmethod = $fields['paymentmethod']['value'];
 		$order->sc_shippingoption = $fields['shippingoption']['value'];
@@ -571,6 +578,7 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 		$order->save();
 
 		$this->session->set('orderId', $order->id);
+
 
 		foreach ($items as $item) {
 			$product = $this->pages->get($item->product_id);
@@ -602,8 +610,23 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 			$p->save();
 		}
 
+		if($this->modules->isInstalled("ShoppingDiscount")) {
+			$discount_price = $this->modules->ShoppingCart->discountCost; // get amount fo discount from cart module
+			$p = new Page();
+			$p->template = $this->templates->get('sc-order-item');
+			$p->parent = $order;
+			$p->title = $this->modules->ShoppingDiscount->title . " (" . $this->modules->ShoppingDiscount->discountPercent . "%)";
+			$p->name = "sc-discount";
+			$p->sc_price = $discount_price;
+			$p->sc_qty = 1;
+			$p->save();
+		}
+
 		$this->session->remove('orderArray');
 		$this->db->query("DELETE FROM ShoppingCart WHERE session_id = '" . $this->modules->ShoppingCart->getSession() . "'");
+
+		// set back locale
+		setlocale(LC_ALL, $oldLocale);
 
 		return ($order->id) ? true : false;
 	}
