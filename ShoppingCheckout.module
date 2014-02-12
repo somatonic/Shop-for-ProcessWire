@@ -16,7 +16,7 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 		);
 	}
 
-	static public function getDefaultFields() {
+	public static function getDefaultFields() {
 
 		$required = array(
 			'visible' => 1,
@@ -118,8 +118,7 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 	   }
 	}
 
-	public function init()
-	{
+	public function init() {
 		// update from 001 to 002 check added missing sc_phone field
 		$info = self::getModuleInfo();
 		$moduleVersion = $info['version'];
@@ -128,10 +127,11 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 				$this->updateAddPhoneField();
 			}
 		}
+
 	}
 
-	public function ready()
-	{
+	public function ready() {
+
 	}
 
 	/*
@@ -203,15 +203,13 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 		$out .= $this->renderShippingOptions();
 		$out .= $this->renderPaymentMethods();
 
-
-
 		$out .= "</form>";
 
 		return $out;
 	}
 
-	public function renderCart() {
-		return $this->modules->ShoppingCart->renderCart();
+	public function renderCart($viewOnly = true, $shippingModule = null) {
+		return $this->modules->ShoppingCart->renderCart($viewOnly , $shippingModule);
 	}
 
 	/*
@@ -219,6 +217,11 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 	 *
 	 */
 	public function renderConfirmation() {
+
+		if(!$this->session->orderArray) {
+			return "<p>" . $this->_("Your shopping cart is empty.") . "</p>";
+		}
+
 		if ($this->input->post->submit) {
 			$this->validateInformation(true); // We still need to validate here
 			$this->createOrder();
@@ -473,8 +476,8 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 			if(isset($this->session->orderArray['fields'][$key])) {
 				$orderArray['fields'][$key]['value'] = $this->session->orderArray['fields'][$key]['value'];
 			}
-		}
 
+		}
 
 		if ($validate) {
 			foreach($orderArray['fields'] as $key => $field) {
@@ -505,16 +508,26 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 			$this->session->set('orderArray', $orderArray);
 		}
 
-		if (!isset($this->session->orderArray['valid'])) $this->session->set('orderArray', $orderArray);
+		// Delete: if (!isset($this->session->orderArray['valid'])) $this->session->set('orderArray', $orderArray);
+
+		// Always write a new session of the order
+		// This step is needed to get correct translations in case we switch languages on the way
+		// on the front-end rendering this module, or we will get the wrong language translation saved in session
+		// from the previous language as a bonus this also will remove error when reloading the form
+		$this->session->set('orderArray', $orderArray);
 
 		return $orderArray;
 
 	}
-	/*
-	 * return true if success
+	/**
 	 *
 	 * Saves order page and it children products to database and destroys session
 	 * based shopping cart fron ShoppingCart table
+	 *
+	 * We also check for repeater pages and set the language titles and names for
+	 * product pages if multilanguage is active.
+	 *
+	 * @return bool returns true if success
 	 *
 	 */
 	public function createOrder()
@@ -539,19 +552,33 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 
 		$fields['paymentmethod']['value'] = $this->session->orderArray['paymentmethod']['value'];
 
-		$items = $this->modules->ShoppingCart->getCurrentCart();
+		$items = wire("modules")->ShoppingCart->getCurrentCart();
 
 		$orderName = time();
-		foreach($fields as $field) {
-			$orderName .= $field;
-		}
+		foreach($fields as $field) $orderName .= $field;
 		$orderName = md5($orderName);
 
+		// Make user language use default, so saving order and product items works.
+		// Temporary workaround to a problem with language support
+		if(wire("languages")) {
+			$language_saved = wire("user")->language;
+			wire("user")->language = wire("languages")->get("default");
+		}
+
+		// create a new page with template sc-order
 		$order = new Page();
-		$order->template = $this->templates->get('sc-order');
-		$order->parent = $this->pages->get("template=admin,name=orders");
-		$order->title = $this->_("Order: ") . $fields['firstname']['value'] . ' ' . $fields['lastname']['value'];
-		$order->name = $orderName;
+		$order->template = wire("templates")->get('sc-order');
+		$order->parent = wire("pages")->get("template=admin, name=orders");
+
+		$orderTitle = $this->_("Order: ") . ' - ' . $fields['firstname']['value'] . ' ' . $fields['lastname']['value'];
+
+		if( wire("languages") && count(wire("languages")) ){
+			$this->setOrderLanguageTitleValues($order, $orderTitle, $orderName);
+		} else {
+			$order->title = $orderTitle;
+			$order->name = $orderName;
+		}
+
 		$order->sc_firstname = $fields['firstname']['value'];
 		$order->sc_lastname = $fields['lastname']['value'];
 		$order->email = $fields['email']['value'];
@@ -561,9 +588,9 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 		$order->sc_country = $fields['country']['value'];
 		$order->sc_phone = $fields['phone']['value'];
 		$order->sc_greetings = $fields['greetings']['value'];
-		$order->sc_custom1 = $fields['custom1']['value'];
-		$order->sc_custom2 = $fields['custom2']['value'];
-		$total_sum = $this->modules->ShoppingCart->getTotalSumFromItems($items, $shippingOption);
+		if(isset($fields['custom1'])) $order->sc_custom1 = $fields['custom1']['value'];
+		if(isset($fields['custom2'])) $order->sc_custom2 = $fields['custom2']['value'];
+		$total_sum = wire("modules")->ShoppingCart->getTotalSumFromItems($items, $shippingOption);
 		$order->sc_price = $total_sum;
 		$order->sc_customer = $this->user;
 		$order->sc_paymentmethod = $fields['paymentmethod']['value'];
@@ -572,54 +599,111 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 		$order->addStatus(Page::statusUnpublished);
 
 		// Default status will be first one there is on /shop/settings/statuses/
-		$admin = $this->pages->get($this->config->adminRootPageID);
-		$order->sc_status = $this->pages->get("/{$admin->name}/shop/settings/statuses/")->children("check_access=0")->first();
+		$admin = wire("pages")->get($this->config->adminRootPageID);
+		$order->sc_status = wire("pages")->get("/{$admin->name}/shop/settings/statuses/")->children("check_access=0")->first();
 
 		$order->save();
 
 		$this->session->set('orderId', $order->id);
 
-
+		// Cycle through item in basket and save them as child page of order page
 		foreach ($items as $item) {
-			$product = $this->pages->get($item->product_id);
 
-			// If the product is repeater, we assume it is a product variation. Se let's prepend the product title before variation
-			if (strpos($product->template->name, "repeater_") === 0) {
-				$parentProduct = $product->getForPage();
-				if ($parentProduct->id) $product->title = $parentProduct->title . ": " . $product->title;
-			}
+			// we load the real page of the product through its id
+			$product = wire("pages")->get($item->product_id);
 
 			$p = new Page();
-			$p->template = $this->templates->get('sc-order-item');
+			$p->template = wire("templates")->get('sc-order-item');
 			$p->parent = $order;
-			$p->title = $product->title;
-			// $p->sc_price = $product->sc_price;
-			$p->sc_price = $this->modules->ShoppingCart->getProductPrice($item);
+
+			if( wire("languages") && count(wire("languages")) ){
+				$this->setProductLanguageTitleValues($p, $product);
+			} else {
+				$p->title = $product->title;
+			}
+
+			$p->sc_price = wire("modules")->ShoppingCart->getProductPrice($item);
 			$p->sc_qty = $item->qty;
 			$p->sc_product = $product;
 			$p->save();
+
 		}
 
 		if($shippingOption) {
+
 			$p = new Page();
-			$p->template = $this->templates->get('sc-order-item');
+			$p->template = wire("templates")->get('sc-order-item');
 			$p->parent = $order;
-			$p->title = $this->_("Shipping costs");
+
+			if(wire("languages")) {
+				// get translated title from ShippingModule title
+				// which is translated and this way we can get it
+				foreach(wire("languages") as $lang){
+					$this->user->language = $lang;
+					$shippingOption_instance = $this->modules->get($this->session->orderArray['shippingoption']['value']);
+					$p->title = $shippingOption_instance->title;
+				}
+				// set back user language
+				$this->user->language = wire("languages")->get("default");
+
+				// set status and name
+				foreach(wire("languages") as $lang){
+					$langid = $lang->isDefault() ? "" : $lang->id;
+					$p->set("status$langid", 1);
+					$p->set("name$langid", "sc-shippping-cost");
+				}
+			} else {
+				$p->title = $shippingOption->title;
+				$p->name = "sc-shippping-cost";
+			}
+
 			$p->sc_price = $shippingOption->calculateShippingCost();
 			$p->sc_qty = 1;
 			$p->save();
+
 		}
 
-		if($this->modules->isInstalled("ShoppingDiscount")) {
-			$discount_price = $this->modules->ShoppingCart->discountCost; // get amount fo discount from cart module
+		if(wire("modules")->isInstalled("ShoppingDiscount")) {
+
+			// get amount of discount from cart module
+			// the responsible module that defines this sets the value to cart module
+			// so it can be used in other modules, having one central storage
+			//
+			// TODO: make this module architecture more abstract/generic
+			// and maybe use/create a OrderDiscounts WireArray module?
+			//
+
 			$p = new Page();
-			$p->template = $this->templates->get('sc-order-item');
+			$p->template = wire("templates")->get('sc-order-item');
 			$p->parent = $order;
-			$p->title = $this->modules->ShoppingDiscount->title . " (" . $this->modules->ShoppingDiscount->discountPercent . "%)";
-			$p->name = "sc-discount";
+
+			if(wire("languages")){
+
+				// set langauge titles comming from translation of discount module!
+				foreach(wire("languages") as $lang){
+					$this->user->language = $lang;
+					$p->title = wire("modules")->get("ShoppingDiscount")->title;
+				}
+
+				// set back user language
+				$this->user->language = wire("languages")->get("default");
+
+				// set status and names
+				foreach(wire("languages") as $lang){
+					$langid = $lang->isDefault() ? "" : $lang->id;
+					$p->set("name$langid", "sc-discount");
+					$p->set("status$langid", 1);
+				}
+			} else {
+				$p->title = wire("modules")->get("ShoppingDiscount")->title;
+				$p->name = "sc-discount";
+			}
+
+			$discount_price = wire("modules")->ShoppingCart->discountCost;
 			$p->sc_price = $discount_price;
 			$p->sc_qty = 1;
 			$p->save();
+
 		}
 
 		$this->session->remove('orderArray');
@@ -628,7 +712,103 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 		// set back locale
 		setlocale(LC_ALL, $oldLocale);
 
+		// set user language back
+		if(wire("languages")) {
+			wire("user")->language = $language_saved;
+		}
+
 		return ($order->id) ? true : false;
+	}
+
+	/**
+	 * Set language values and active status when language support is used
+	 * @param Page   $page  the page to save values to
+	 * @param string $title title value
+	 * @param string $name  the page name value
+	 */
+	public function setOrderLanguageTitleValues(Page &$page, $title, $name) {
+		foreach(wire("languages") as $lang) {
+
+			if(wire("fields")->get("title")->type instanceof FieldtypePageTitleLanguage) {
+				$page->title->setLanguageValue($lang, $title);
+			} else {
+				$page->title = $title;
+			}
+
+			$name = wire("sanitizer")->pageName($name, Sanitizer::translate);
+
+			if($this->modules->isInstalled("LanguageSupportPageNames")) {
+				$langid = $lang->isDefault() ? '' : $lang->id;
+				$page->set("name$langid", $name);
+				$page->set("status$langid", 1);
+			} else {
+				$page->set("name", $name);
+				$page->set("status", 1);
+			}
+		}
+	}
+
+
+	/**
+	 * Set language values and active status when language support is used
+	 *
+	 * This is used for products, so they are saved with the language titles from the product
+	 * that makes it easier to create emails from the order in a language
+	 *
+	 * @param Page   $page  the page to save values to
+	 * @param string $title title value
+	 * @param string $name  the page name value
+	 */
+	public function setProductLanguageTitleValues(Page &$page, $product) {
+
+		foreach(wire("languages") as $lang) {
+
+			// if (strpos($product->template->name, "repeater_") === 0) {
+			// 	$parentProduct = $product->getForPage();
+			// 	if ($parentProduct->id) $product->title = $parentProduct->title . ": " . $product->title;
+			// }
+
+			// for page title language
+			if(wire("fields")->get("title")->type instanceof FieldtypePageTitleLanguage) {
+
+				$product->of(false);
+
+				// for variants
+				if (strpos($product->template->name, "repeater_") === 0) {
+					$parentProduct = $product->getForPage();
+					$parentProduct->of(false);
+					$parentTitle = $parentProduct->title->getLanguageValue($lang);
+					$variantTitle = $product->title->getLanguageValue($lang);
+					$langTitle = $parentTitle . ": " . $variantTitle;
+				} else {
+					$langTitle = $product->title->getLanguageValue($lang);
+				}
+
+				$page->title->setLanguageValue($lang, $langTitle);
+				$name = wire("sanitizer")->pageName($langTitle, Sanitizer::translate);
+
+			} else { // for normal page title (non language)
+
+				// for variants
+				if (strpos($product->template->name, "repeater_") === 0) {
+					$parentProduct = $product->getForPage();
+					if ($parentProduct->id) $product->title = $parentProduct->title . ": " . $product->title;
+				}
+
+				$page->title = $product->title;
+				$name = wire("sanitizer")->pageName($product->title, Sanitizer::translate);
+			}
+
+			if($this->modules->isInstalled("LanguageSupportPageNames")) {
+				$langid = $lang->isDefault() ? '' : $lang->id;
+
+				$page->set("name$langid", $name);
+				$page->set("status$langid", 1);
+			} else {
+				$page->set("name", $name);
+				$page->set("status", 1);
+			}
+		}
 	}
 
 	static public function getModuleConfigInputfields(Array $data) {
