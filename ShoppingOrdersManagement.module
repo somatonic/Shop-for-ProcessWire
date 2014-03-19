@@ -6,7 +6,7 @@ class ShoppingOrdersManagement extends Process {
 		return array(
 			'title' => 'Orders Management',
 			'summary' => 'Manage Shop orders',
-			'version' => 002,
+			'version' => 003,
 			'permanent' => false,
 			'singular' => true,
 			'permission' => 'shop_orders',
@@ -170,48 +170,8 @@ class ShoppingOrdersManagement extends Process {
 		$out .= "</div>"; // order-info-2 ends
 
 
-		$table = $this->modules->get("MarkupAdminDataTable");
-		$table->setEncodeEntities(false);
-		$table->setClass('items');
-		$table->headerRow(array($this->_('Product'),
-								$this->_('Qty'),
-								$this->_('Price'),
-								$this->_('Total')));
-
-		$items = $order->children();
-		$order_total = 0;
-
-		foreach($items as $item) {
-
-			if($item->name == "sc-discount"){ // page name we saved for discount
-				$table->row(array(
-				   $item->title,
-				   "",
-				   "",
-				   "<span class='number'>− " . $this->modules->get("ShoppingCart")->renderPrice($item->sc_price) . "</span>"
-				));
-			} else {
-				$total_price = $item->sc_qty * $item->sc_price;
-				$table->row(array(
-				   $item->title,
-				   $item->sc_qty,
-				   "<span class='number'>" . $this->modules->get("ShoppingCart")->renderPrice($item->sc_price) . "</span>",
-				   "<span class='number'>" . $this->modules->get("ShoppingCart")->renderPrice($total_price) . "</span>"
-				));
-			}
-
-		}
-
-		$order_total = $order->sc_price;
-		$table->row(array(
-			"<b>" . $this->_("Total:") . "</b>",
-			"&nbsp;",
-			"&nbsp;",
-			"<span class='number'><b>" . $this->modules->get("ShoppingCart")->renderPrice($order_total) . "</b></span>"
-		));
-
-
-
+		// $table = $this->modules->get("MarkupAdminDataTable");
+		$table = $this->renderOrderTable($order);
 		$out .= $table->render();
 
 		$out .= "<a class='edit-order' href='"
@@ -308,6 +268,58 @@ class ShoppingOrdersManagement extends Process {
 		$out .= "</div>";
 
 		return $out;
+	}
+
+
+	public function renderOrderTable(Page $order){
+
+		$table = $this->modules->get("MarkupAdminDataTable");
+		$table->setEncodeEntities(false);
+		$table->setClass('items');
+		$table->headerRow(array($this->_('Product'),
+								$this->_('Qty'),
+								$this->_('Price'),
+								$this->_('Total')));
+
+		$items = $order->children();
+		$order_total = 0;
+
+		foreach($items as $item) {
+
+			if($item->name == "sc-discount"){ // page name we saved for discount
+				if($item->sc_price > 0) {
+					$table->row(array(
+					   $item->title,
+					   "",
+					   "",
+					   "<span class='number'>− " . $this->modules->get("ShoppingCart")->renderPrice($item->sc_price) . "</span>"
+					));
+				}
+
+			} else {
+				if($item->sc_qty > 0 && $item->sc_price > 0){
+					$total_price = $item->sc_qty * $item->sc_price;
+					$table->row(array(
+					   $item->title,
+					   $item->sc_qty,
+					   "<span class='number'>" . $this->modules->get("ShoppingCart")->renderPrice($item->sc_price) . "</span>",
+					   "<span class='number'>" . $this->modules->get("ShoppingCart")->renderPrice($total_price) . "</span>"
+					));
+				}
+
+			}
+
+		}
+
+		$order_total = $order->sc_price;
+		$table->row(array(
+			"<b>" . $this->_("Total:") . "</b>",
+			"&nbsp;",
+			"&nbsp;",
+			"<span class='number'><b>" . $this->modules->get("ShoppingCart")->renderPrice($order_total) . "</b></span>"
+		));
+
+		return $table;
 	}
 
 	public function install() {

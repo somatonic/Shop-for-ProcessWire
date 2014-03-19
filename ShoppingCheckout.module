@@ -6,7 +6,7 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 	{
 		return array(
 			'title' => 'Shopping Checkout',
-			'version' => 003,
+			'version' => 004,
 			'summary' => 'Handles checkout process, order saving etc. Main module for PW Shop',
 			'singular' => false,
 			'autoload' => false,
@@ -202,6 +202,8 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 
 		$out .= $this->renderShippingOptions();
 		$out .= $this->renderPaymentMethods();
+
+
 
 		$out .= "</form>";
 
