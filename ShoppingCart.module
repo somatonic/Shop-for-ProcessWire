@@ -212,7 +212,7 @@ class ShoppingCart extends WireData implements Module, ConfigurableModule
 		$out .= "<tr><th>" . $this->_('Product') . "</th>";
 		$out .= "<th>" . $this->_('Quantity') . "</th>";
 		$out .= "<th>" . $this->_('Subtotal') . "</th>";
-		if (!$viewOnly) $out .= "<th>" . $this->_('Remove?') . "</th>";
+		if (!$viewOnly) $out .= "<th>&nbsp;</th>";
 		$out .= "</tr>";
 
 
@@ -239,7 +239,7 @@ class ShoppingCart extends WireData implements Module, ConfigurableModule
 				$out .= "<td class='sc_number'>" . (int) $item->qty . "</td>";
 			}
 
-			$out .= "<td class='sc_number'>" . $this->renderPrice($total_price) . "</td>";
+			$out .= "<td class='sc_number'>" . $this->renderPrice($total_price, false) . "</td>";
 			if (!$viewOnly) $out .= "<td><a class='remove' href='./?sc_remove=" . $product->id . "'>" . $this->_("Remove") . "</a></td>";
 			$out .= "</tr>";
 		}
@@ -248,14 +248,14 @@ class ShoppingCart extends WireData implements Module, ConfigurableModule
 		$out .= "<tr class='subtotal'>";
 		$out .= "<td> " . $this->_("Subtotal") .  " </td>";
 		$out .= "<td>&nbsp;</td>";
-		$out .= "<td class='sc_number'>" . $this->renderPrice($subtotal_sum) . "</td>";
+		$out .= "<td class='sc_number'>" . $this->renderPrice($subtotal_sum, false) . "</td>";
 		if (!$viewOnly) $out .= "<td>&nbsp;</td>";
 		$out .= "</tr>";
 
 
 		if ($shippingModule) {
 			$shippingCost = $shippingModule->calculateShippingCost();
-			$shippingCost_str = $this->renderPrice($shippingCost);
+			$shippingCost_str = $this->renderPrice($shippingCost, false);
 			if($shippingCost > 0)
 			{
 				$out .= "<tr class='shippingRow'><td colspan='2'>". $this->_("Shipping costs") ."</td><td class='sc_number'>$shippingCost_str</td>";
@@ -267,7 +267,7 @@ class ShoppingCart extends WireData implements Module, ConfigurableModule
 
 		if ($this->modules->isInstalled("ShoppingDiscount")) {
 			$discount = $this->discountCost;
-			$discount_str = $this->renderPrice($discount);
+			$discount_str = $this->renderPrice($discount, false);
 			if($discount > 0)
 			{
 				$out .= "<tr class='discountRow'><td colspan='2'>"
@@ -309,11 +309,12 @@ class ShoppingCart extends WireData implements Module, ConfigurableModule
 		return true;
 	}
 
-	public function renderPrice($price)
+	public function renderPrice($price, $showCurrency = true)
 	{
 		settype($price, "float");
 		$price = number_format($price, $this->decimals, $this->dec_point, $this->thousands_sep);
 		$space = ($this->spaceOnCurrency) ? " " : "";
+		if(!$showCurrency) return $price;
 		if ($this->currencyBefore == 1)
 			return $this->currency . $space . $price;
 		else
@@ -385,15 +386,15 @@ class ShoppingCart extends WireData implements Module, ConfigurableModule
 			$total_sum   = $total_sum + $total_price;
 		}
 
-		if ($shippingOption) {
-			$total_sum = $total_sum + $shippingOption->calculateShippingCost();
-		}
-
 		// calculate discount if module is installed
 		if ($this->modules->isInstalled("ShoppingDiscount")) {
 			$discount = $this->modules->ShoppingDiscount->calculateDiscountCost($total_sum);
 			$total_sum = $total_sum - $discount;
 			$total_sum = $this->modules->ShoppingDiscount->roundPrice($total_sum);
+		}
+
+		if ($shippingOption) {
+			$total_sum = $total_sum + $shippingOption->calculateShippingCost();
 		}
 
 		return $total_sum;

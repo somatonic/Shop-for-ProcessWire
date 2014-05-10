@@ -556,8 +556,10 @@ class ShoppingCheckout extends WireData implements Module, ConfigurableModule
 
 		$items = wire("modules")->ShoppingCart->getCurrentCart();
 
-		$orderName = time();
-		foreach($fields as $field) $orderName .= $field;
+		$orderName = microtime();
+		$orderName .= $fields['email']['value'];
+		$orderName .= $fields['firstname']['value'];
+		$orderName .= $fields['lastname']['value'];
 		$orderName = md5($orderName);
 
 		// Make user language use default, so saving order and product items works.
